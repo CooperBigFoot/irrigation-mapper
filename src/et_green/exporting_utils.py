@@ -47,6 +47,7 @@ def prepare_rainfed_fields(
     double_cropping_image: ee.Image,
     not_irrigated_crops: Set[str],
     rainfed_crops: Set[str],
+    minimum_field_size: int,
 ) -> ee.FeatureCollection:
     """
     Prepare rainfed fields by filtering and adding double cropping information.
@@ -56,6 +57,7 @@ def prepare_rainfed_fields(
         double_cropping_image (ee.Image): Image containing double cropping information
         not_irrigated_crops (List[str]): List of crop types that are not irrigated
         rainfed_crops (List[str]): List of rainfed reference crops
+        minimum_field_size (int): Minimum field size in m^2
 
     Returns:
         ee.FeatureCollection: Filtered rainfed fields
@@ -71,6 +73,14 @@ def prepare_rainfed_fields(
     _, rainfed_fields = filter_crops(
         nutzung_with_double_crop, exclude_filter, rainfed_filter
     )
+
+    # Add area property if not present
+    rainfed_fields = rainfed_fields.map(
+        lambda feature: feature.set("area", feature.geometry().area().divide(1).round())
+    )
+
+    # Drop all rainfed fields whose area is below minimum_field_size
+    rainfed_fields = rainfed_fields.filter(ee.Filter.gte("area", minimum_field_size))
 
     return rainfed_fields
 
@@ -126,6 +136,7 @@ def process_et_green(
     resolution: int = 10,
     not_irrigated_crops: List[str] = None,
     rainfed_crops: List[str] = None,
+    minimum_field_size=1000,
 ) -> None:
     """
     Process and export ET green images for a given year.
@@ -143,6 +154,7 @@ def process_et_green(
         resolution (int): Export resolution in meters
         not_irrigated_crops (List[str]): List of crops to exclude
         rainfed_crops (List[str]): List of rainfed reference crops
+        minimum_field_size (int): Minimum field size in m^2, defaults to 1000 (1 ha)
     """
     # Use default crop lists if none provided
     if not_irrigated_crops is None:
@@ -152,7 +164,11 @@ def process_et_green(
 
     # Prepare rainfed fields
     rainfed_fields = prepare_rainfed_fields(
-        landuse_collection, double_cropping_image, not_irrigated_crops, rainfed_crops
+        landuse_collection,
+        double_cropping_image,
+        not_irrigated_crops,
+        rainfed_crops,
+        minimum_field_size,
     )
 
     tasks = []

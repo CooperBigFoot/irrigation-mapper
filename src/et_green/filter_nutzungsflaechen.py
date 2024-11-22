@@ -100,9 +100,19 @@ def get_crops_to_exclude() -> Set[str]:
 
 def get_rainfed_reference_crops() -> set:
     """
-    Returns a set of crop types to use as rainfed reference, excluding double-cropped fields.
+    Returns a set of crop types to use as rainfed reference.
     """
-    return {"Kunstwiesen (ohne Weiden)", "Übrige Dauerwiesen (ohne Weiden)"}
+    # return {"Kunstwiesen (ohne Weiden)", "Übrige Dauerwiesen (ohne Weiden)"}
+
+    # TODO: Change when not validating
+    return {
+        "Extensiv genutzte Weiden",
+        "Weiden (Heimweiden, übrige Weiden ohne Sömmerungsweiden)",
+        "Übrige Dauerwiesen (ohne Weiden)",
+        "Übrige Grünfläche (Dauergrünfläche), beitragsberechtigt",
+        "Übrige Grünfläche (Dauergrünflächen), nicht beitragsberechtigt",
+        "Waldweiden (ohne bewaldete Fläche)",
+    }
 
 
 def get_winter_crops() -> Set[str]:

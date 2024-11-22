@@ -10,8 +10,7 @@ def resample_image(
     preserve_band_properties: bool = False,
 ) -> ee.Image:
     """
-    Resample specific bands of an image to a target scale and add them as new bands
-    with 'resampled_' prefix.
+    Resample specific bands of an image to a target scale.
 
     Args:
         image (ee.Image): The input image to be resampled.
@@ -34,7 +33,6 @@ def resample_image(
             resampled = band.reproject(
                 crs=original_projection, scale=target_scale
             ).setDefaultProjection(crs=original_projection, scale=target_scale)
-            # Rename the band with 'resampled_' prefix
             return resampled
 
         # Create a list of resampled band images
