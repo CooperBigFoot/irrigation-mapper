@@ -1,36 +1,46 @@
 import ee
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import math
 
 
 def add_temporal_bands(collection: ee.ImageCollection) -> ee.ImageCollection:
-    """Add temporal and constant bands to each image in the collection. This is for harmonic regression.
+    """Add temporal and constant bands to each image in the collection.
 
     Args:
         collection: The input image collection.
 
     Returns:
-        ee.ImageCollection: The collection with added bands."""
+        ee.ImageCollection: Collection with added temporal and constant bands.
+    """
+    reference_date = ee.Date("1970-01-01")
 
     def _add_bands(image: ee.Image) -> ee.Image:
-        date = ee.Date(image.get("system:time_start"))
-        years = date.difference(ee.Date("1970-01-01"), "year")
-
+        # Get projection once and reuse
         projection = image.select([0]).projection()
-        time_band = ee.Image(years).float().rename("t")
-        constant_band = ee.Image.constant(1).rename("constant")
 
-        return image.addBands(
-            [
-                time_band.setDefaultProjection(projection),
-                constant_band.setDefaultProjection(projection),
-            ]
+        # Calculate years since reference date
+        date = ee.Date(image.get("system:time_start"))
+        years = date.difference(reference_date, "year")
+
+        # Create bands with consistent projection
+        time_band = ee.Image(years).float().rename("t").setDefaultProjection(projection)
+        constant_band = (
+            ee.Image.constant(1).rename("constant").setDefaultProjection(projection)
         )
+
+        # Add both bands at once to reduce operations
+        return image.addBands([time_band, constant_band])
 
     return collection.map(_add_bands)
 
 
 class HarmonicRegressor:
+    """A class for performing harmonic regression on Earth Engine image time series.
+
+    This class implements harmonic regression for time series analysis, particularly
+    useful for analyzing seasonal patterns in vegetation indices or other temporal data.
+    """
+
     def __init__(
         self,
         omega: float = 1.5,
@@ -38,6 +48,14 @@ class HarmonicRegressor:
         band_to_harmonize: str = "NDVI",
         parallel_scale: int = 2,
     ):
+        """Initialize the HarmonicRegressor.
+
+        Args:
+            omega: Angular frequency (default: 1.5)
+            max_harmonic_order: Maximum number of harmonics to use (default: 2)
+            band_to_harmonize: Name of the band to perform harmonization on (default: 'NDVI')
+            parallel_scale: Scale for parallel processing (default: 2)
+        """
         self.omega = omega
         self.max_harmonic_order = max_harmonic_order
         self.band_to_harmonize = band_to_harmonize
@@ -45,47 +63,44 @@ class HarmonicRegressor:
         self._regression_coefficients = None
         self._fitted_data = None
 
-    @property
-    def harmonic_component_names(self) -> List[str]:
-        """Generate harmonic component names based on the max harmonic order.
-
-        Returns:
-            List[str]: List of harmonic component names.
-        """
-        return ["constant", "t"] + [
+        # Pre-compute harmonic component names
+        self._harmonic_names = ["constant", "t"] + [
             f"{trig}{i}"
             for i in range(1, self.max_harmonic_order + 1)
             for trig in ["cos", "sin"]
         ]
 
-    def fit(self, image_collection: ee.ImageCollection) -> "HarmonicRegressor":
-        """
-        Fit the harmonic regression model to the input image collection.
+        # Pre-compute omega values for each harmonic
+        self._omega_values = [
+            2 * i * self.omega * math.pi for i in range(1, self.max_harmonic_order + 1)
+        ]
 
-        Args:
-            image_collection (ee.ImageCollection): Input image collection.
+    @property
+    def harmonic_component_names(self) -> List[str]:
+        """Get the names of harmonic components.
 
         Returns:
-            HarmonicRegressor: Fitted model.
+            List[str]: List of harmonic component names.
+        """
+        return self._harmonic_names
+
+    def fit(self, image_collection: ee.ImageCollection) -> "HarmonicRegressor":
+        """Fit the harmonic regression model to the input image collection.
+
+        Args:
+            image_collection: Input image collection with temporal bands.
+
+        Returns:
+            HarmonicRegressor: The fitted model instance.
 
         Raises:
             TypeError: If image_collection is not an ee.ImageCollection.
-            ValueError: If required bands are missing from the image collection.
+            ValueError: If required bands are missing.
         """
         if not isinstance(image_collection, ee.ImageCollection):
-            raise TypeError("image_collection must be an ee.ImageCollection.")
+            raise TypeError("image_collection must be an ee.ImageCollection")
 
-        first_image = image_collection.first()
-        required_bands = ["t", self.band_to_harmonize]
-        missing_bands = [
-            band
-            for band in required_bands
-            if not first_image.bandNames().contains(band).getInfo()
-        ]
-        if missing_bands:
-            raise ValueError(
-                f"Input ImageCollection is missing required bands: {missing_bands}"
-            )
+        self._validate_input_collection(image_collection)
 
         harmonic_collection = self._prepare_harmonic_collection(image_collection)
         self._regression_coefficients = self._compute_regression_coefficients(
@@ -97,115 +112,145 @@ class HarmonicRegressor:
         return self
 
     def predict(self, image_collection: ee.ImageCollection) -> ee.ImageCollection:
-        """
-        Predict using the fitted harmonic regression model.
+        """Predict using the fitted harmonic regression model.
 
         Args:
-            image_collection (ee.ImageCollection): Input image collection for prediction.
+            image_collection: Input image collection for prediction.
 
         Returns:
-            ee.ImageCollection: Image collection with predicted values.
+            ee.ImageCollection: Collection with predicted values.
 
         Raises:
-            ValueError: If the model has not been fitted yet.
+            ValueError: If the model hasn't been fitted.
         """
         if self._regression_coefficients is None:
             raise ValueError("Model has not been fitted yet. Call fit() first.")
 
         harmonic_collection = self._prepare_harmonic_collection(image_collection)
-
         return self._compute_fitted_values(
             harmonic_collection, self._regression_coefficients
         )
 
     def get_phase_amplitude(self) -> ee.Image:
-        """
-        Calculate phase and amplitude from regression coefficients.
+        """Calculate phase and amplitude from regression coefficients.
 
         Returns:
             ee.Image: Image with phase and amplitude bands.
+
+        Raises:
+            ValueError: If the model hasn't been fitted.
         """
         if self._regression_coefficients is None:
             raise ValueError("Model has not been fitted yet. Call fit() first.")
         return self._calculate_phase_amplitude()
 
+    def _validate_input_collection(self, collection: ee.ImageCollection) -> None:
+        """Validate the input collection has required bands.
+
+        Args:
+            collection: Input image collection to validate.
+
+        Raises:
+            ValueError: If required bands are missing.
+        """
+        first_image = collection.first()
+        required_bands = ["t", self.band_to_harmonize]
+
+        band_names = first_image.bandNames()
+        missing_bands = [
+            band for band in required_bands if not band_names.contains(band).getInfo()
+        ]
+
+        if missing_bands:
+            raise ValueError(f"Missing required bands: {missing_bands}")
+
     def _prepare_harmonic_collection(
         self, image_collection: ee.ImageCollection
     ) -> ee.ImageCollection:
-        """
-        Prepare the input image collection for harmonic regression.
+        """Prepare the input collection for harmonic regression.
 
         Args:
-            image_collection (ee.ImageCollection): Input image collection.
+            image_collection: Input image collection.
 
         Returns:
-            ee.ImageCollection: Image collection with harmonic components added.
+            ee.ImageCollection: Collection with harmonic components.
         """
         return image_collection.map(self._add_harmonic_components)
 
     def _add_harmonic_components(self, image: ee.Image) -> ee.Image:
-        """Add harmonic component bands to the image.
+        """Add harmonic component bands to an image.
 
         Args:
-            image (ee.Image): Input image.
+            image: Input image.
 
         Returns:
-            ee.Image: Image with harmonic components added.
+            ee.Image: Image with added harmonic components.
         """
-        for i in range(1, self.max_harmonic_order + 1):
-            omega_i = 2 * i * self.omega * math.pi
-            time_radians = image.select("t").multiply(omega_i)
-            cos_band = time_radians.cos().rename(f"cos{i}")
-            sin_band = time_radians.sin().rename(f"sin{i}")
-            image = image.addBands(cos_band).addBands(sin_band)
-        return image
+        time = image.select("t")
+        harmonic_bands = []
+
+        for i, omega_i in enumerate(self._omega_values, 1):
+            time_radians = time.multiply(omega_i)
+            harmonic_bands.extend(
+                [
+                    time_radians.cos().rename(f"cos{i}"),
+                    time_radians.sin().rename(f"sin{i}"),
+                ]
+            )
+
+        return image.addBands(harmonic_bands)
 
     def _compute_regression_coefficients(
         self, harmonic_collection: ee.ImageCollection
     ) -> ee.Image:
-        """Compute regression coefficients using Earth Engine's linearRegression reducer.
+        """Compute regression coefficients.
 
         Args:
-            harmonic_collection (ee.ImageCollection): Image collection with harmonic components.
+            harmonic_collection: Collection with harmonic components.
 
         Returns:
-            ee.Image: Image with regression coefficients.
+            ee.Image: Image containing regression coefficients.
         """
-        regression_input_bands = ee.List(self.harmonic_component_names).add(
+        regression_input_bands = ee.List(self._harmonic_names).add(
             self.band_to_harmonize
         )
-        regression_result = harmonic_collection.select(regression_input_bands).reduce(
-            ee.Reducer.linearRegression(
-                numX=len(self.harmonic_component_names), numY=1
-            ),
+
+        # Pre-select required bands
+        selected_collection = harmonic_collection.select(regression_input_bands)
+
+        regression_result = selected_collection.reduce(
+            ee.Reducer.linearRegression(numX=len(self._harmonic_names), numY=1),
             parallelScale=self.parallel_scale,
         )
+
         return (
             regression_result.select("coefficients")
             .arrayProject([0])
-            .arrayFlatten([self.harmonic_component_names])
+            .arrayFlatten([self._harmonic_names])
         )
 
     def _compute_fitted_values(
         self, harmonic_collection: ee.ImageCollection, coefficients: ee.Image
     ) -> ee.ImageCollection:
-        """Compute fitted values using the regression coefficients.
+        """Compute fitted values using regression coefficients.
 
         Args:
-            harmonic_collection (ee.ImageCollection): Image collection with harmonic components.
-            coefficients (ee.Image): Image with regression coefficients.
+            harmonic_collection: Collection with harmonic components.
+            coefficients: Regression coefficients.
 
         Returns:
-            ee.ImageCollection: Image collection with fitted values.
+            ee.ImageCollection: Collection with fitted values.
         """
 
         def compute_fitted(image: ee.Image) -> ee.Image:
+            selected_image = image.select(self._harmonic_names)
+
             fitted_values = (
-                image.select(self.harmonic_component_names)
-                .multiply(coefficients)
+                selected_image.multiply(coefficients)
                 .reduce(ee.Reducer.sum())
                 .rename("fitted")
             )
+
             return image.addBands(fitted_values)
 
         return harmonic_collection.map(compute_fitted)
@@ -216,13 +261,30 @@ class HarmonicRegressor:
         Returns:
             ee.Image: Image with phase and amplitude bands.
         """
-        phases = []
-        amplitudes = []
+        components = []
         for i in range(1, self.max_harmonic_order + 1):
-            cos_coeff = self._regression_coefficients.select(f"cos{i}")
-            sin_coeff = self._regression_coefficients.select(f"sin{i}")
-            phase = sin_coeff.atan2(cos_coeff).rename(f"phase{i}")
-            amplitude = sin_coeff.hypot(cos_coeff).rename(f"amplitude{i}")
-            phases.append(phase)
-            amplitudes.append(amplitude)
-        return ee.Image.cat(phases + amplitudes)
+            coeff_pair = self._regression_coefficients.select([f"cos{i}", f"sin{i}"])
+
+            # Calculate phase and amplitude together
+            phase = coeff_pair.select(1).atan2(coeff_pair.select(0)).rename(f"phase{i}")
+            amplitude = coeff_pair.reduce(ee.Reducer.hypot()).rename(f"amplitude{i}")
+
+            components.extend([phase, amplitude])
+
+        return ee.Image.cat(components)
+
+    def get_coefficients(self) -> Optional[ee.Image]:
+        """Get the regression coefficients.
+
+        Returns:
+            Optional[ee.Image]: Regression coefficients if model is fitted, None otherwise.
+        """
+        return self._regression_coefficients
+
+    def get_fitted_data(self) -> Optional[ee.ImageCollection]:
+        """Get the fitted data.
+
+        Returns:
+            Optional[ee.ImageCollection]: Fitted data if model is fitted, None otherwise.
+        """
+        return self._fitted_data

@@ -50,7 +50,6 @@ def resample_image(
         # Rename all bands with 'resampled_' prefix
         resampled = resampled
 
-
     return resampled.copyProperties(image).set(
         {
             "system:time_start": image.get("system:time_start"),
@@ -273,7 +272,6 @@ class Downscaler:
                     }
                 )
                 .setDefaultProjection(crs=fine_projection, scale=fine_scale)
-                .reproject(crs=fine_projection, scale=fine_scale)
             )
 
         except Exception as e:
