@@ -125,14 +125,23 @@ def _apply_mosaic(
     original_scale: ee.Number,
     timestamp: Dict[str, Any],
 ) -> ee.Image:
-    """Applies mosaic operation with consistent projection."""
+    """
+    Applies mosaic operation with consistent projection.
+
+    Args:
+        collection: Input image collection
+        mosaic_type: Type of mosaic to create
+        original_projection: Target projection
+        original_scale: Target scale
+        timestamp: Timestamp to set on output image
+
+    Returns:
+        ee.Image: Mosaicked image with consistent projection
+    """
     if mosaic_type == MosaicType.RECENT:
         mosaic_image = collection.mosaic()
     elif mosaic_type == MosaicType.LEAST_CLOUDY:
         mosaic_image = collection.sort("CLOUDY_PIXEL_PERCENTAGE").mosaic()
-    else:
-        raise ValueError(f"Invalid mosaic_type: {mosaic_type}")
-
     return (
         mosaic_image.setDefaultProjection(original_projection)
         .reproject(crs=original_projection, scale=original_scale)
@@ -153,6 +162,7 @@ def aggregate_stack(
     mosaic_type = MosaicType(options.get("mosaic_type", MosaicType.RECENT))
     original_projection = options["original_projection"]
     original_scale = options["original_scale"]
+    band_name = options.get("band_name")  # Get band_name from options
 
     time_interval = ee.List(time_interval)
     start_date, end_date = [ee.Date(time_interval.get(i)) for i in range(2)]
@@ -171,6 +181,7 @@ def aggregate_stack(
                 original_projection,
                 original_scale,
                 timestamp,
+                # band_name,
             ),
             _create_empty_image(
                 band_list, original_projection, original_scale, timestamp
@@ -511,7 +522,7 @@ def export_image_to_asset(
     )
 
     print(f"Exporting {task_name} for {year} to {asset_id}")
-    task.start() 
+    task.start()
     return task
 
 
@@ -578,3 +589,16 @@ def is_image_empty(image: ee.Image) -> bool:
 
     # Convert the computed sum to a number and check if it equals 0
     return ee.Number(valid_pixels).eq(0).getInfo()
+
+
+def fill_gaps_with_zeros(image: ee.Image) -> ee.Image:
+    """
+    Fills gaps in an image with zeros.
+
+    Args:
+        image (ee.Image): Image to fill gaps in
+
+    Returns:
+        ee.Image: Image with gaps filled
+    """
+    return image.unmask(0)
