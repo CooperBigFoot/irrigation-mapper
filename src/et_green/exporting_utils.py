@@ -9,7 +9,7 @@ from src.et_green.filter_nutzungsflaechen import (
     add_double_cropping_info,
     get_unique_nutzung,
 )
-from utils.ee_utils import back_to_int, export_image_to_asset
+from utils.ee_utils import back_to_int, export_image_to_asset, normalize_string_server
 
 
 def get_time_step_pattern(date: ee.Date, time_step_type: str) -> str:
@@ -42,6 +42,28 @@ def get_time_step_pattern(date: ee.Date, time_step_type: str) -> str:
     return f"{month_str}_D{dekadal}"
 
 
+def normalize_feature(feature: ee.Feature, property: str = "nutzung") -> ee.Feature:
+    """Normalizes a property's string value in an Earth Engine Feature by replacing special characters.
+
+    Adds a new property with suffix '_normalized' containing the normalized string value.
+    For example, if property is "nutzung", creates "nutzung_normalized".
+
+    Args:
+        feature (ee.Feature): The Earth Engine Feature containing the property to normalize.
+        property (str, optional): Name of the property to normalize. Defaults to "nutzung".
+
+    Returns:
+        ee.Feature: The input feature with an additional normalized property.
+    """
+    prop_value = ee.String(feature.get(property))
+
+    normalized_prop_name = ee.String(property).cat("_normalized")
+
+    normalized = normalize_string_server(prop_value)
+
+    return feature.set(normalized_prop_name, normalized)
+
+
 def prepare_rainfed_fields(
     landuse_collection: ee.FeatureCollection,
     double_cropping_image: ee.Image,
@@ -62,6 +84,7 @@ def prepare_rainfed_fields(
     Returns:
         ee.FeatureCollection: Filtered rainfed fields
     """
+    landuse_collection = landuse_collection.map(normalize_feature)
 
     exclude_filter, rainfed_filter = create_crop_filters(
         not_irrigated_crops, rainfed_crops

@@ -621,3 +621,40 @@ def fill_gaps_with_zeros(image: ee.Image) -> ee.Image:
         ee.Image: Image with gaps filled
     """
     return image.unmask(0)
+
+
+def normalize_string_client(s: str) -> str:
+    """
+    Normalize strings on client side for the exclusion and rainfed sets.
+    Replaces German umlauts with their ASCII equivalents.
+    """
+    replacements = {
+        "ä": "ae",
+        "ö": "oe",
+        "ü": "ue",
+        "ß": "ss",
+        "Ä": "Ae",
+        "Ö": "Oe",
+        "Ü": "Ue",
+    }
+
+    for old, new in replacements.items():
+        s = s.replace(old, new)
+
+    return s
+
+
+def normalize_string_server(ee_string: ee.String) -> ee.String:
+    """
+    Normalize strings server side using ee.String.replace().
+    Must be compatible with client-side normalization.
+    """
+    return (
+        ee_string.replace("ä", "ae", "g")
+        .replace("ö", "oe", "g")
+        .replace("ü", "ue", "g")
+        .replace("ß", "ss", "g")
+        .replace("Ä", "Ae", "g")
+        .replace("Ö", "Oe", "g")
+        .replace("Ü", "Ue", "g")
+    )
