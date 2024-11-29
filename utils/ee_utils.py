@@ -526,6 +526,25 @@ def export_image_to_asset(
     return task
 
 
+def export_feature_collection(
+    collection: ee.FeatureCollection, task_name: str, asset_id: str
+):
+    """
+    Export the feature collection to an Earth Engine asset.
+
+    Args:
+        collection: The feature collection to export
+        task_name: The name of the export task
+        asset_id: The asset ID to export to
+    """
+    task = ee.batch.Export.table.toAsset(
+        collection=collection,
+        description=task_name,
+        assetId=asset_id,
+    )
+    task.start()
+
+
 def print_value_ranges(
     collection: ee.ImageCollection, band_name: str = "ET_blue"
 ) -> None:
