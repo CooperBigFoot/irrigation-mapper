@@ -115,6 +115,7 @@ def get_rainfed_reference_crops() -> set:
         "Übrige Grünfläche (Dauergrünfläche), beitragsberechtigt",
         "Übrige Grünfläche (Dauergrünflächen), nicht beitragsberechtigt",
         "Waldweiden (ohne bewaldete Fläche)",
+        "Kunstwiesen (ohne Weiden)"
     }
 
     return {normalize_string_client(crop) for crop in rainfed_reference_set}

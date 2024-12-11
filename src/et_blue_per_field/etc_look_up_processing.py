@@ -183,8 +183,8 @@ def _process_single_image(
             None,
             {
                 "date": image_date.format("YYYY-MM-dd"),
-                f"min_et_{collection_idx+1}": min_et,
-                "etc": etc_value,
+                # f"min_et_{collection_idx+1}": min_et,
+                # "etc": etc_value,
                 f"et_ratio_{collection_idx+1}": et_ratio,
             },
         )
@@ -246,8 +246,8 @@ def compute_et_ratio_timeseries(
         for collection_idx in range(len(et_collections)):
             props = all_results[collection_idx][time_idx]["properties"]
             for key in [
-                f"min_et_{collection_idx+1}",
-                "etc",
+                # f"min_et_{collection_idx+1}",
+                # "etc",
                 f"et_ratio_{collection_idx+1}",
             ]:
                 combined_props[key] = props.get(key)
