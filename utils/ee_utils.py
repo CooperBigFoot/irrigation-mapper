@@ -302,44 +302,37 @@ def extract_pixel_values(
     band: str = "downscaled",
 ) -> ee.FeatureCollection:
     """
-    Extract the pixel value of the specified band for each image in the collection
-    at the specified point, with error handling for missing timestamps.
+    Extract pixel values from an image collection at a specific point, handling masked pixels.
 
     Args:
-        image_collection (ee.ImageCollection): The input image collection.
-        point (ee.Geometry.Point): The point at which to extract values.
-        band (str): The band to extract values from. Defaults to 'downscaled'.
+        image_collection (ee.ImageCollection): The input image collection
+        point (ee.Geometry.Point): The point at which to extract values
+        band (str): The band to extract values from. Defaults to 'downscaled'
 
     Returns:
-        ee.FeatureCollection: A feature collection where each feature represents an image
-                              and contains the pixel value of the "band" at the point.
+        ee.FeatureCollection: Features containing pixel values and timestamps
     """
 
     def extract_value(image: ee.Image) -> ee.Feature:
-        # Select the specified band
-        image_band = image.select(band)
+        # Select and unmask the specified band, setting masked pixels to 0
+        image_band = image.select(band).unmask(0)
 
-        # Get the scale of the specified band
+        # Get the scale of the band
         scale = image_band.projection().nominalScale()
 
-        # Extract the pixel value at the point
-        pixel_value = image_band.reduceRegion(
-            reducer=ee.Reducer.first(),
-            geometry=point,
-            scale=scale,
-            bestEffort=True,
-        ).get(band)
-
-        # Retrieve the image acquisition time
-        time_start = image.get("system:time_start")
-
-        # Handle potential null time_start
-        formatted_date = ee.Algorithms.If(
-            ee.Algorithms.IsEqual(time_start, None),
-            None,
-            ee.Date(time_start).format("YYYY-MM-dd"),
+        # Extract pixel value using first reducer
+        value_dict = image_band.reduceRegion(
+            reducer=ee.Reducer.first(), geometry=point, scale=scale, bestEffort=True
         )
 
+        # Get pixel value, defaulting to 0 if null
+        pixel_value = ee.Number(value_dict.get(band)).multiply(1)
+
+        # Handle timestamp
+        time_start = image.get("system:time_start")
+        formatted_date = ee.Date(time_start).format("YYYY-MM-dd")
+
+        # Create feature with properties
         return ee.Feature(
             None,
             {
@@ -349,8 +342,20 @@ def extract_pixel_values(
             },
         )
 
-    # Map the extraction function over the image collection
-    return ee.FeatureCollection(image_collection.map(extract_value))
+    # Filter out images with no data at point location
+    valid_images = image_collection.map(
+        lambda img: img.set(
+            "has_data",
+            img.select(band)
+            .mask()
+            .reduceRegion(reducer=ee.Reducer.anyNonZero(), geometry=point, scale=30)
+            .values()
+            .get(0),
+        )
+    )
+
+    # Map extraction over filtered collection
+    return ee.FeatureCollection(valid_images.map(extract_value))
 
 
 def aggregate_to_monthly(

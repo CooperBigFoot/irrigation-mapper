@@ -5,4 +5,8 @@ data
 src/.DS_Store
 src/et_blue/__pycache__
 src/et_blue_per_field/__pycache__
-utils/__pycache__/ee_utils.cpython-311.pyc
+utils/__pycache__
+images
+notebooks/plots_final_presentation.ipynb
+.DS_Store
+

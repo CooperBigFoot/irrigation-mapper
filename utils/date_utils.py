@@ -227,6 +227,7 @@ def get_days_in_month(date: ee.Date) -> ee.Number:
 #     merged_list = dates.map(merge_date_images)
 #     return ee.ImageCollection(merged_list)
 
+
 def merge_same_date_images(collection: ee.ImageCollection) -> ee.ImageCollection:
     """
     Merges images from the same date in a collection, handling edge effects by taking
@@ -243,26 +244,25 @@ def merge_same_date_images(collection: ee.ImageCollection) -> ee.ImageCollection
     def merge_date_images(date):
         date_num = ee.Number(date)
         date_imgs = collection.filter(ee.Filter.eq("system:time_start", date_num))
-        
+
         # Calculate the mean and count of valid pixels
         mean_img = date_imgs.mean()
         count_img = date_imgs.count()
-        
+
         # Use mosaic only where we have single image coverage
         mosaic_img = date_imgs.mosaic()
-        
+
         # Combine: use mean where count > 1, mosaic elsewhere
-        final_img = ee.Image(ee.Algorithms.If(
-            count_img.gt(1),
-            mean_img,
-            mosaic_img
-        ))
-        
+        final_img = ee.Image(ee.Algorithms.If(count_img.gt(1), mean_img, mosaic_img))
+
         first = date_imgs.first()
-        return final_img.set({
-            "system:time_start": date_num,
-            "system:footprint": first.get("system:footprint"),
-        })
+        return final_img.set(
+            {
+                "system:time_start": date_num,
+                "system:footprint": first.get("system:footprint"),
+            }
+        )
 
     merged_list = dates.map(merge_date_images)
     return ee.ImageCollection(merged_list)
+
