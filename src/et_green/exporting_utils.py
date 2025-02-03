@@ -149,7 +149,7 @@ def generate_export_task(
 def process_et_green(
     et_collection_list: ee.List,
     landuse_collection: ee.FeatureCollection,
-    jurisdictions: ee.FeatureCollection,
+    # jurisdictions: ee.FeatureCollection,
     double_cropping_image: ee.Image,
     year: int,
     aoi: ee.Geometry,
@@ -167,7 +167,7 @@ def process_et_green(
     Args:
         et_collection_list (ee.List): List of ET images
         landuse_collection (ee.FeatureCollection): Collection of land use features
-        jurisdictions (ee.FeatureCollection): Collection of jurisdiction boundaries
+        # jurisdictions (ee.FeatureCollection): Collection of jurisdiction boundaries
         double_cropping_image (ee.Image): Double cropping classification image
         year (int): Year to process
         aoi (ee.Geometry): Area of interest
@@ -205,9 +205,7 @@ def process_et_green(
         date = ee.Date(et_image.get("system:time_start"))
         time_step_pattern = get_time_step_pattern(date, time_step_type)
 
-        et_green = compute_et_green(
-            et_image, rainfed_fields, jurisdictions, et_band_name=et_band_name
-        )
+        et_green = compute_et_green(et_image, rainfed_fields, et_band_name=et_band_name)
 
         # Convert to integer
         et_green = back_to_int(et_green, 100)

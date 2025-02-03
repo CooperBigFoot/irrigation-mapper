@@ -8,11 +8,13 @@ DEFAULT_SCALE = 10
 DUMMY_VALUE = 1
 
 # Kriging parameters
-KRIGING_SHAPE = 'gaussian'
-KRIGING_RANGE = 50000  # 50km in meters
-KRIGING_SILL = 100
+KRIGING_SAMPLES = 1000
+KRIGING_SHAPE = "gaussian"
+KRIGING_RANGE = 1000  # km in meters
+KRIGING_SILL = 10
 KRIGING_NUGGET = 0.1
-KRIGING_MAX_DISTANCE = 30000 # 30km in meters
+KRIGING_MAX_DISTANCE = 1000  # km in meters
+
 
 
 def validate_image_band(image: ee.Image, band_name: str) -> ee.Number:
@@ -121,31 +123,46 @@ def compute_feature_mean(
     return feature.set("mean_et", mean_et)
 
 
+# File: /src/gee_processing/et_kriging.py
+
+import ee
+from typing import Optional
+
+# Module-level constants
+MAX_PIXELS_DEFAULT = int(1e13)
+MAX_PIXELS_STATS = int(1e9)
+DEFAULT_SCALE = 10
+
+# Kriging parameters
+KRIGING_SHAPE = "gaussian"
+KRIGING_RANGE = 50000  # 50km in meters
+KRIGING_SILL = 100
+KRIGING_NUGGET = 0.1
+KRIGING_MAX_DISTANCE = 30000  # 30km in meters
+
+
 def compute_valid_et_green(
     et_image: ee.Image,
     rainfed_reference: ee.FeatureCollection,
-    feature_collection: ee.FeatureCollection,
     et_band_name: str,
     max_pixels: int,
 ) -> ee.Image:
     """
-    Compute ET green for valid input data.
+    Compute ET green using kriging interpolation from rainfed reference areas.
 
     Args:
         et_image (ee.Image): Input ET image
         rainfed_reference (ee.FeatureCollection): Rainfed reference areas
-        feature_collection (ee.FeatureCollection): Features for computation
         et_band_name (str): Name of the ET band
         max_pixels (int): Maximum pixels for computation
 
     Returns:
-        ee.Image: Computed ET green image
+        ee.Image: Computed ET green image using kriging interpolation
     """
     projection = et_image.projection()
     scale = projection.nominalScale()
     time_start = et_image.get("system:time_start")
 
-    # Add a numeric property to rainfed_reference
     rainfed_ref = rainfed_reference.map(lambda f: f.set("dummy", DUMMY_VALUE))
 
     # Mask the ET image with rainfed reference areas
@@ -153,56 +170,48 @@ def compute_valid_et_green(
         rainfed_ref.reduceToImage(["dummy"], ee.Reducer.first()).mask()
     )
 
-    # Compute the overall mean ET value (fallback for features without rainfed areas)
-    overall_mean_et = ee.Number(
-        masked_et.reduceRegion(
-            reducer=ee.Reducer.mean(),
-            geometry=feature_collection.geometry(),
-            scale=scale,
-            maxPixels=max_pixels,
-        ).get(et_band_name)
+    # Sample ET values at masked locations
+    points = masked_et.sample(
+        region=masked_et.geometry(), scale=scale, projection=projection, geometries=True, numPixels=KRIGING_SAMPLES
     )
 
-    # Compute mean ET values for each feature
-    features_with_mean = feature_collection.map(
-        lambda f: compute_feature_mean(
-            f, masked_et, overall_mean_et, et_band_name, scale, max_pixels
-        )
+    # Apply kriging interpolation
+    et_green = points.kriging(
+        propertyName=et_band_name,
+        shape=KRIGING_SHAPE,
+        range=KRIGING_RANGE,
+        sill=KRIGING_SILL,
+        nugget=KRIGING_NUGGET,
+        maxDistance=KRIGING_MAX_DISTANCE,
+        reducer=ee.Reducer.mean(),
     )
 
-    # Create an image with ET green values for each feature
-    et_green = features_with_mean.reduceToImage(["mean_et"], ee.Reducer.first()).rename(
-        "ET_green"
-    )
-
-    return et_green.setDefaultProjection(projection, None, scale).set(
-        "system:time_start", time_start
+    return (
+        et_green.rename("ET_green")
+        .setDefaultProjection(projection, None, scale)
+        .set("system:time_start", time_start)
     )
 
 
 def compute_et_green(
     et_image: ee.Image,
     rainfed_reference: ee.FeatureCollection,
-    feature_collection: ee.FeatureCollection,
     et_band_name: str = "downscaled",
     max_pixels: int = MAX_PIXELS_DEFAULT,
 ) -> ee.Image:
     """
-    Compute ET green based on the given ET image and rainfed reference areas for each feature
-    in the provided feature collection. Returns an empty image with preserved metadata if
-    input validation fails.
+    Compute ET green based on the given ET image and rainfed reference areas using kriging interpolation.
+    Returns an empty image with preserved metadata if input validation fails.
 
     Args:
         et_image (ee.Image): An image containing ET values
         rainfed_reference (ee.FeatureCollection): A feature collection of rainfed reference areas
-        feature_collection (ee.FeatureCollection): A feature collection over which to compute the ET green values
         et_band_name (str, optional): The name of the band in the ET image containing the ET values
         max_pixels (int, optional): Maximum number of pixels to process
 
     Returns:
-        ee.Image: An image with a single band 'ET_green' containing the computed ET green values
-                 for each feature. Returns an empty (masked) image with preserved metadata if
-                 validation fails.
+        ee.Image: An image with a single band 'ET_green' containing the interpolated ET green values.
+                 Returns an empty (masked) image with preserved metadata if validation fails.
     """
     # Validate inputs and convert result to number (1 or 0)
     is_valid = validate_image_band(et_image, et_band_name)
@@ -214,7 +223,6 @@ def compute_et_green(
             compute_valid_et_green(
                 et_image,
                 rainfed_reference,
-                feature_collection,
                 et_band_name,
                 max_pixels,
             ),
