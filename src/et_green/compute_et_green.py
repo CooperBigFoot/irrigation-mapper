@@ -7,6 +7,13 @@ MAX_PIXELS_STATS = int(1e9)
 DEFAULT_SCALE = 10
 DUMMY_VALUE = 1
 
+# Kriging parameters
+KRIGING_SHAPE = 'gaussian'
+KRIGING_RANGE = 50000  # 50km in meters
+KRIGING_SILL = 100
+KRIGING_NUGGET = 0.1
+KRIGING_MAX_DISTANCE = 30000 # 30km in meters
+
 
 def validate_image_band(image: ee.Image, band_name: str) -> ee.Number:
     """
